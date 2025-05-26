@@ -1,44 +1,50 @@
-name: macOS-RDP-Setup
+name: macOS-RDP-Solution
 
 on:
   workflow_dispatch:
 
 jobs:
-  setup-rdp:
+  remote-access:
     runs-on: macos-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Install Playit Agent
+    - name: Configure Remote Access
       run: |
-        # Download macOS-compatible Playit agent
+        # Create new admin user with known password
+        sudo dscl . -create /Users/rdpuser
+        sudo dscl . -create /Users/rdpuser UserShell /bin/bash
+        sudo dscl . -create /Users/rdpuser RealName "RDP User"
+        sudo dscl . -create /Users/rdpuser UniqueID 2000
+        sudo dscl . -create /Users/rdpuser PrimaryGroupID 80
+        sudo dscl . -create /Users/rdpuser NFSHomeDirectory /Users/rdpuser
+        sudo mkdir /Users/rdpuser
+        sudo chown rdpuser:staff /Users/rdpuser
+        
+        # Set password without old password (requires admin rights)
+        sudo sysadminctl -resetPasswordFor rdpuser -newPassword "admin@123"
+        
+        # Enable Remote Management for new user
+        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+          -activate -configure -users rdpuser -access -on -privs -all -restart -agent
+
+    - name: Install Playit
+      run: |
         curl -LO https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-macos-x86_64
         chmod +x playit-macos-x86_64
         sudo mv playit-macos-x86_64 /usr/local/bin/playit
 
-    - name: Configure Remote Access
-      run: |
-        # Enable Remote Management (more modern than Screen Sharing)
-        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -activate -configure -users runner -access -on -privs -all -restart -agent -clientopts -setmenuextra -menuextra no
-
-        # Set password for runner user (GitHub-hosted runner username)
-        sudo dscl . -passwd /Users/runner "admin@123"
-
-        # Bypass privacy restrictions (may require additional permissions)
-        sudo sqlite3 /Library/Application\ Support/com.apple.TCC/TCC.db \
-          "INSERT OR REPLACE INTO access VALUES('kTCCServiceScreenCapture','com.apple.Terminal',1,1,1,NULL,NULL,NULL,'UNUSED',NULL,0,$(date +%s))"
-
-    - name: Start Playit Tunnel
+    - name: Start Tunnel
       env:
         PLAYIT_KEY: ${{ secrets.PLAYIT_KEY }}
       run: |
         nohup playit --secret $PLAYIT_KEY > playit.log 2>&1 &
-        sleep 10  # Wait for tunnel initialization
-
-    - name: Maintain Connection
-      run: |
-        # Keep alive for 6 hours
         sleep 21600
+
+    - name: Bypass Security Restrictions
+      run: |
+        # Grant screen recording permissions (may require manual approval)
+        sudo sqlite3 /Library/Application\ Support/com.apple.TCC/TCC.db \
+          "INSERT OR REPLACE INTO access VALUES('kTCCServiceScreenCapture','com.apple.Terminal',1,1,1,NULL,NULL,NULL,'UNUSED',NULL,0,$(date +%s))"
+        
+        # Disable SIP temporarily (only works on some systems)
+        sudo csrutil disable
