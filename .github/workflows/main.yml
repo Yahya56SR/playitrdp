@@ -1,4 +1,4 @@
-name: Ubuntu-RDP-Setup
+name: Ubuntu-RDP-Fixed
 
 on:
   workflow_dispatch:
@@ -8,41 +8,58 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Check out the repository
-      uses: actions/checkout@v4
-
-    - name: Install XRDP and Desktop Environment
+    - name: Install XFCE with D-Bus Configuration
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           xrdp \
           xfce4 \
-          xfce4-goodies \
           xfce4-session \
+          xfce4-goodies \
+          xfconf \
           dbus-x11 \
           lightdm \
-          xserver-xorg-core
-        
-        # Configure Xsession
-        echo xfce4-session > ~/.xsession
-        sudo cp ~/.xsession /etc/skel/
-        sudo sed -i 's/^allowed_users=.*/allowed_users=anyone/' /etc/X11/Xwrapper.config
-        
-        # Set default session for XRDP
-        sudo echo "xfce4-session" | sudo tee /etc/xrdp/startwm.sh
-        sudo systemctl restart xrdp
+          xserver-xorg-core \
+          --no-install-recommends
 
-    - name: Configure User and Services
+        # Configure D-Bus and environment
+        sudo systemctl enable dbus
+        sudo systemctl start dbus
+        echo 'export XDG_CONFIG_DIRS="/etc/xdg/xdg-xubuntu:/etc/xdg:/etc"' | sudo tee -a /etc/environment
+        echo 'export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"' | sudo tee -a /etc/environment
+
+    - name: Configure XRDP Session
       run: |
-        # Create user with password
+        # Create proper startwm.sh configuration
+        sudo cp /etc/xrdp/startwm.sh /etc/xrdp/startwm.sh.bak
+        sudo tee /etc/xrdp/startwm.sh > /dev/null <<'EOL'
+        #!/bin/sh
+        if [ -r /etc/default/locale ]; then
+          . /etc/default/locale
+          export LANG LANGUAGE
+        fi
+        export XDG_CONFIG_DIRS="/etc/xdg/xdg-xubuntu:/etc/xdg:/etc"
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+        . /etc/X11/Xsession
+        xfce4-session
+        EOL
+        sudo chmod +x /etc/xrdp/startwm.sh
+
+    - name: Configure User and Permissions
+      run: |
         sudo useradd -m -s /bin/bash ubuntuuser
         echo "ubuntuuser:admin@123" | sudo chpasswd
         sudo usermod -aG sudo ubuntuuser
-        
-        # Ensure proper permissions
-        sudo chown ubuntuuser:ubuntuuser /home/ubuntuuser/.xsession
-        
-        # Configure firewall
+        sudo mkdir -p /home/ubuntuuser/.config/xfce4/xfconf
+        sudo chown -R ubuntuuser:ubuntuuser /home/ubuntuuser
+
+    - name: Finalize Setup
+      run: |
+        # Configure Xwrapper
+        echo "allowed_users=anybody" | sudo tee /etc/X11/Xwrapper.config
+        sudo systemctl restart lightdm
+        sudo systemctl restart xrdp
+        sudo systemctl restart dbus
         sudo ufw allow 3389/tcp
         sudo ufw --force enable
 
@@ -52,18 +69,13 @@ jobs:
         chmod +x playit
         sudo mv playit /usr/local/bin/
 
-    - name: Start Services
-      run: |
-        sudo systemctl restart lightdm
-        sudo systemctl restart xrdp
-
     - name: Start Playit Tunnel
       env:
         PLAYIT_AUTH_KEY: ${{ secrets.PL }}
       run: |
         nohup playit --secret $PLAYIT_AUTH_KEY > playit.log 2>&1 &
-        sleep 10  # Wait for tunnel initialization
+        sleep 10
 
     - name: Maintain Connection
       run: |
-        sleep 21600  # 6 hours
+        sleep 21600
