@@ -5,7 +5,7 @@ on:
 
 jobs:
   setup-rdp-tunnel:
-    runs-on: windows-latest
+    runs-on: macos-latest
 
     steps:
     - name: Check out the repository
@@ -13,24 +13,29 @@ jobs:
 
     - name: Download and Install Playit
       run: |
-        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
-        Start-Sleep -Seconds 5  # Give some time for the download to complete
+        curl -L -o ~/playit "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-macos-x86_64"
+        chmod +x ~/playit
         
-    # Default, optional.
-    - name: Enable TS
-      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
-    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "admin@123" -Force)
+    - name: Enable macOS Screen Sharing
+      run: |
+        # Enable Remote Desktop
+        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+          -activate -configure -access -on \
+          -privs -all -restart -agent -clientopts -setmenuextra -menuextra no
+        
+        # Set password for current user
+        sudo dscl . -passwd /Users/runner admin@123
 
-    - name: www.toolboxlap.com
+        # Enable firewall exceptions (if needed)
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent
+
+    - name: Start Playit and Maintain Session
       env:
-        PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
+        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
       run: |
-        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
-        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
-    #  www.toolboxlap.com
-    # Prevent workflow to stop
-    - name: Keep the GitHub Action Runner Alive
-      run: |
-          Start-Sleep -Seconds 21600  # Adjust the duration based on your needs
+        # Start Playit agent with authentication key
+        nohup ~/playit --secret $PLAYIT_AUTH_KEY > ~/playit.log 2>&1 &
+        
+        # Keep runner active for 6 hours (21600 seconds)
+        sleep 21600
