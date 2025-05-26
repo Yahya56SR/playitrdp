@@ -1,50 +1,31 @@
-name: macOS-RDP-Solution
+name: Jor3a-Ti9niya-RDP-Linux
 
 on:
   workflow_dispatch:
 
 jobs:
-  remote-access:
-    runs-on: macos-latest
+  setup-rdp-tunnel:
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Configure Remote Access
-      run: |
-        # Create new admin user with known password
-        sudo dscl . -create /Users/rdpuser
-        sudo dscl . -create /Users/rdpuser UserShell /bin/bash
-        sudo dscl . -create /Users/rdpuser RealName "RDP User"
-        sudo dscl . -create /Users/rdpuser UniqueID 2000
-        sudo dscl . -create /Users/rdpuser PrimaryGroupID 80
-        sudo dscl . -create /Users/rdpuser NFSHomeDirectory /Users/rdpuser
-        sudo mkdir /Users/rdpuser
-        sudo chown rdpuser:staff /Users/rdpuser
-        
-        # Set password without old password (requires admin rights)
-        sudo sysadminctl -resetPasswordFor rdpuser -newPassword "admin@123"
-        
-        # Enable Remote Management for new user
-        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -activate -configure -users rdpuser -access -on -privs -all -restart -agent
+    - name: Check out the repository
+      uses: actions/checkout@v4
 
-    - name: Install Playit
+    - name: Install XRDP and Desktop Environment
       run: |
-        curl -LO https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-macos-x86_64
-        chmod +x playit-macos-x86_64
-        sudo mv playit-macos-x86_64 /usr/local/bin/playit
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xrdp xfce4 xfce4-goodies dbus-x11
+        echo xfce4-session > ~/.xsession
+        sudo systemctl enable xrdp
+        sudo systemctl restart xrdp
 
-    - name: Start Tunnel
-      env:
-        PLAYIT_KEY: ${{ secrets.PL }}
+    - name: Configure User and Firewall
       run: |
-        nohup playit --secret $PLAYIT_KEY > playit.log 2>&1 &
-        sleep 21600
-
-    - name: Bypass Security Restrictions
-      run: |
-        # Grant screen recording permissions (may require manual approval)
-        sudo sqlite3 /Library/Application\ Support/com.apple.TCC/TCC.db \
-          "INSERT OR REPLACE INTO access VALUES('kTCCServiceScreenCapture','com.apple.Terminal',1,1,1,NULL,NULL,NULL,'UNUSED',NULL,0,$(date +%s))"
+        # Create user with password
+        sudo useradd -m -s /bin/bash ubuntuuser
+        echo "ubuntuuser:admin@123" | sudo chpasswd
+        sudo usermod -aG sudo ubuntuuser
         
-        # Disable SIP temporarily (only works on some systems)
-        sudo csrutil disable
+        # Configure firewall
+        sudo ufw allow 3389/tcp
+        sudo
