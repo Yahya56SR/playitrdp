@@ -28,4 +28,22 @@ jobs:
         
         # Configure firewall
         sudo ufw allow 3389/tcp
-        sudo
+        sudo ufw --force enable
+
+    - name: Install Playit Agent
+      run: |
+        curl -Lo playit https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-linux-amd64
+        chmod +x playit
+        sudo mv playit /usr/local/bin/
+
+    - name: Start Playit Tunnel
+      env:
+        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
+      run: |
+        nohup playit --secret $PLAYIT_AUTH_KEY > playit.log 2>&1 &
+        echo "Playit tunnel started. Check logs at playit.log"
+
+    - name: Keep Runner Alive
+      run: |
+        # Maintain connection for 6 hours
+        sleep 21600
