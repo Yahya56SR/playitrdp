@@ -1,41 +1,44 @@
-name: Jor3a-Ti9niya-RDP
+name: macOS-RDP-Setup
 
 on:
   workflow_dispatch:
 
 jobs:
-  setup-rdp-tunnel:
+  setup-rdp:
     runs-on: macos-latest
 
     steps:
-    - name: Check out the repository
-      uses: actions/checkout@v2
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-    - name: Download and Install Playit
+    - name: Install Playit Agent
       run: |
-        curl -L -o ~/playit "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-macos-x86_64"
-        chmod +x ~/playit
-        
-    - name: Enable macOS Screen Sharing
+        # Download macOS-compatible Playit agent
+        curl -LO https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-macos-x86_64
+        chmod +x playit-macos-x86_64
+        sudo mv playit-macos-x86_64 /usr/local/bin/playit
+
+    - name: Configure Remote Access
       run: |
-        # Enable Remote Desktop
+        # Enable Remote Management (more modern than Screen Sharing)
         sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -activate -configure -access -on \
-          -privs -all -restart -agent -clientopts -setmenuextra -menuextra no
-        
-        # Set password for current user
-        sudo dscl . -passwd /Users/runner admin@123
+          -activate -configure -users runner -access -on -privs -all -restart -agent -clientopts -setmenuextra -menuextra no
 
-        # Enable firewall exceptions (if needed)
-        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent
-        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent
+        # Set password for runner user (GitHub-hosted runner username)
+        sudo dscl . -passwd /Users/runner "admin@123"
 
-    - name: Start Playit and Maintain Session
+        # Bypass privacy restrictions (may require additional permissions)
+        sudo sqlite3 /Library/Application\ Support/com.apple.TCC/TCC.db \
+          "INSERT OR REPLACE INTO access VALUES('kTCCServiceScreenCapture','com.apple.Terminal',1,1,1,NULL,NULL,NULL,'UNUSED',NULL,0,$(date +%s))"
+
+    - name: Start Playit Tunnel
       env:
-        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
+        PLAYIT_KEY: ${{ secrets.PLAYIT_KEY }}
       run: |
-        # Start Playit agent with authentication key
-        nohup ~/playit --secret $PLAYIT_AUTH_KEY > ~/playit.log 2>&1 &
-        
-        # Keep runner active for 6 hours (21600 seconds)
+        nohup playit --secret $PLAYIT_KEY > playit.log 2>&1 &
+        sleep 10  # Wait for tunnel initialization
+
+    - name: Maintain Connection
+      run: |
+        # Keep alive for 6 hours
         sleep 21600
