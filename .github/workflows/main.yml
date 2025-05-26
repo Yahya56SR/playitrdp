@@ -8,60 +8,55 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Install XFCE with D-Bus Configuration
+    - name: Configure XServer and Display Manager
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           xrdp \
           xfce4 \
           xfce4-session \
-          xfce4-goodies \
-          xfconf \
-          dbus-x11 \
-          lightdm \
           xserver-xorg-core \
+          xserver-xorg-legacy \
+          xorgxrdp \
+          xvfb \
+          lightdm \
           --no-install-recommends
 
-        # Configure D-Bus and environment
-        sudo systemctl enable dbus
-        sudo systemctl start dbus
-        echo 'export XDG_CONFIG_DIRS="/etc/xdg/xdg-xubuntu:/etc/xdg:/etc"' | sudo tee -a /etc/environment
-        echo 'export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"' | sudo tee -a /etc/environment
+        # Configure virtual display
+        echo "allowed_users=anybody" | sudo tee /etc/X11/Xwrapper.config
+        echo "[LightDM]" | sudo tee /etc/lightdm/lightdm.conf.d/50-xrdp.conf
+        echo "display-setup-script=/usr/bin/xvfb-run" | sudo tee -a /etc/lightdm/lightdm.conf.d/50-xrdp.conf
 
-    - name: Configure XRDP Session
+    - name: Configure XRDP Environment
       run: |
-        # Create proper startwm.sh configuration
-        sudo cp /etc/xrdp/startwm.sh /etc/xrdp/startwm.sh.bak
-        sudo tee /etc/xrdp/startwm.sh > /dev/null <<'EOL'
+        # Create proper XRDP session configuration
+        sudo tee /etc/xrdp/startwm.sh <<'EOL'
         #!/bin/sh
-        if [ -r /etc/default/locale ]; then
-          . /etc/default/locale
-          export LANG LANGUAGE
-        fi
-        export XDG_CONFIG_DIRS="/etc/xdg/xdg-xubuntu:/etc/xdg:/etc"
+        export XDG_CONFIG_DIRS="/etc/xdg:/etc/xdg/xdg-xubuntu"
         export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+        export DISPLAY=:0
         . /etc/X11/Xsession
         xfce4-session
         EOL
         sudo chmod +x /etc/xrdp/startwm.sh
 
-    - name: Configure User and Permissions
+    - name: Setup User and Services
       run: |
+        # Create user with password
         sudo useradd -m -s /bin/bash ubuntuuser
         echo "ubuntuuser:admin@123" | sudo chpasswd
         sudo usermod -aG sudo ubuntuuser
-        sudo mkdir -p /home/ubuntuuser/.config/xfce4/xfconf
-        sudo chown -R ubuntuuser:ubuntuuser /home/ubuntuuser
 
-    - name: Finalize Setup
-      run: |
-        # Configure Xwrapper
-        echo "allowed_users=anybody" | sudo tee /etc/X11/Xwrapper.config
+        # Configure permissions
+        sudo chown -R ubuntuuser:ubuntuuser /home/ubuntuuser
+        sudo chmod 755 /home/ubuntuuser
+
+        # Start virtual display and services
+        sudo Xvfb :0 -screen 0 1280x720x24 &
+        sudo systemctl restart dbus
         sudo systemctl restart lightdm
         sudo systemctl restart xrdp
-        sudo systemctl restart dbus
-        sudo ufw allow 3389/tcp
-        sudo ufw --force enable
+        sleep 5  # Wait for services to initialize
 
     - name: Install Playit Agent
       run: |
@@ -74,8 +69,9 @@ jobs:
         PLAYIT_AUTH_KEY: ${{ secrets.PL }}
       run: |
         nohup playit --secret $PLAYIT_AUTH_KEY > playit.log 2>&1 &
+        echo "Playit tunnel started. Check logs at playit.log"
         sleep 10
 
     - name: Maintain Connection
       run: |
-        sleep 21600
+        sleep 21600  # 6 hours
