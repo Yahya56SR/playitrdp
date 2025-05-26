@@ -1,4 +1,4 @@
-name: Jor3a-Ti9niya-RDP-Linux
+name: Ubuntu-RDP-Setup
 
 on:
   workflow_dispatch:
@@ -14,17 +14,33 @@ jobs:
     - name: Install XRDP and Desktop Environment
       run: |
         sudo apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xrdp xfce4 xfce4-goodies dbus-x11
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          xrdp \
+          xfce4 \
+          xfce4-goodies \
+          xfce4-session \
+          dbus-x11 \
+          lightdm \
+          xserver-xorg-core
+        
+        # Configure Xsession
         echo xfce4-session > ~/.xsession
-        sudo systemctl enable xrdp
+        sudo cp ~/.xsession /etc/skel/
+        sudo sed -i 's/^allowed_users=.*/allowed_users=anyone/' /etc/X11/Xwrapper.config
+        
+        # Set default session for XRDP
+        sudo echo "xfce4-session" | sudo tee /etc/xrdp/startwm.sh
         sudo systemctl restart xrdp
 
-    - name: Configure User and Firewall
+    - name: Configure User and Services
       run: |
         # Create user with password
         sudo useradd -m -s /bin/bash ubuntuuser
         echo "ubuntuuser:admin@123" | sudo chpasswd
         sudo usermod -aG sudo ubuntuuser
+        
+        # Ensure proper permissions
+        sudo chown ubuntuuser:ubuntuuser /home/ubuntuuser/.xsession
         
         # Configure firewall
         sudo ufw allow 3389/tcp
@@ -36,14 +52,18 @@ jobs:
         chmod +x playit
         sudo mv playit /usr/local/bin/
 
+    - name: Start Services
+      run: |
+        sudo systemctl restart lightdm
+        sudo systemctl restart xrdp
+
     - name: Start Playit Tunnel
       env:
         PLAYIT_AUTH_KEY: ${{ secrets.PL }}
       run: |
         nohup playit --secret $PLAYIT_AUTH_KEY > playit.log 2>&1 &
-        echo "Playit tunnel started. Check logs at playit.log"
+        sleep 10  # Wait for tunnel initialization
 
-    - name: Keep Runner Alive
+    - name: Maintain Connection
       run: |
-        # Maintain connection for 6 hours
-        sleep 21600
+        sleep 21600  # 6 hours
