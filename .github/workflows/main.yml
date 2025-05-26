@@ -35,7 +35,7 @@ jobs:
 
     - name: Start Tunnel
       env:
-        PLAYIT_KEY: ${{ secrets.PLAYIT_KEY }}
+        PLAYIT_KEY: ${{ secrets.PL }}
       run: |
         nohup playit --secret $PLAYIT_KEY > playit.log 2>&1 &
         sleep 21600
