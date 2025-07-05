@@ -142,7 +142,7 @@ jobs:
     - name: Set up Playit tunnel
       if: ${{ github.event.inputs.enable_debug == 'true' }}
       env:
-        PLAYIT_AUTH_KEY: ${{ secrets.PLAYIT_AUTH_KEY }}
+        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
       run: |
         # Download and install Playit
         Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
